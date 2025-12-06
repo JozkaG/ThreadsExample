@@ -54,7 +54,8 @@ class TimerViewModel : ViewModel() {
                     delay(1000)
                     remainingMillis -= 1000
                 }
-
+                // Ensure we end exactly at 0 and stop
+                remainingMillis = 0L
                 isRunning = false
             }
         }
@@ -66,6 +67,13 @@ class TimerViewModel : ViewModel() {
             isRunning = false
             remainingMillis = 0
         }
+    }
+
+    fun resetTimer() {
+        // Stop timer and restore remaining time to original total
+        timerJob?.cancel()
+        isRunning = false
+        remainingMillis = totalMillis
     }
 
     override fun onCleared() {

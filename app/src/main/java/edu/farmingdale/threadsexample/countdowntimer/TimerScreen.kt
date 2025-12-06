@@ -1,5 +1,6 @@
 package edu.farmingdale.threadsexample.countdowntimer
 
+import android.media.MediaPlayer
 import android.util.Log
 import android.widget.NumberPicker
 import androidx.compose.animation.core.LinearEasing
@@ -18,18 +19,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import edu.farmingdale.threadsexample.R
 import java.text.DecimalFormat
 import java.util.Locale
 import kotlin.time.Duration
@@ -40,6 +44,46 @@ fun TimerScreen(
     modifier: Modifier = Modifier,
     timerViewModel: TimerViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+
+    var hasPlayedFinishSound by remember { mutableStateOf(false) }
+
+    val targetProgress =
+        if (timerViewModel.totalMillis > 0L)
+            timerViewModel.remainingMillis.toFloat() / timerViewModel.totalMillis.toFloat()
+        else
+            0f
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = if (timerViewModel.isRunning) targetProgress else 0f,
+        animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
+        label = "timerProgress"
+    )
+
+    LaunchedEffect(timerViewModel.remainingMillis, timerViewModel.isRunning) {
+        if (!timerViewModel.isRunning &&
+            timerViewModel.totalMillis > 0L &&
+            timerViewModel.remainingMillis == 0L &&
+            !hasPlayedFinishSound
+        ) {
+            hasPlayedFinishSound = true
+            try {
+                val player = MediaPlayer.create(context, R.raw.timer_finished)
+                player?.setOnCompletionListener { it.release() }
+                player?.start()
+            } catch (e: Exception) {
+                Log.e("TimerScreen", "Error playing sound", e)
+            }
+        }
+
+        if (timerViewModel.isRunning) {
+            hasPlayedFinishSound = false
+        }
+    }
+
+    val isLastTenSeconds =
+        timerViewModel.isRunning && timerViewModel.remainingMillis in 1_000L..10_000L
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = modifier
@@ -47,48 +91,70 @@ fun TimerScreen(
                 .size(240.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (timerViewModel.isRunning) {
-
+            //ToDo 5: visual indicator of time left
+            if (timerViewModel.totalMillis > 0L) {
+                CircularProgressIndicator(
+                    progress = animatedProgress,
+                    modifier = Modifier.matchParentSize(),
+                    strokeWidth = 8.dp
+                )
             }
+
+            // ToDo 4: Make text larger
             Text(
                 text = timerText(timerViewModel.remainingMillis),
-                fontSize = 40.sp,
+                fontSize = 64.sp,
+                color = if (isLastTenSeconds) Color.Red else Color.Unspecified,
+                fontWeight = if (isLastTenSeconds) FontWeight.Bold else FontWeight.Normal
             )
         }
+
         TimePicker(
             hour = timerViewModel.selectedHour,
             min = timerViewModel.selectedMinute,
             sec = timerViewModel.selectedSecond,
             onTimePick = timerViewModel::selectTime
         )
-        if (timerViewModel.isRunning) {
-            Button(
-                onClick = timerViewModel::cancelTimer,
-                modifier = modifier.padding(50.dp)
-            ) {
-                Text("Cancel")
+
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            modifier = modifier.padding(top = 50.dp)
+        ) {
+            if (timerViewModel.isRunning) {
+                Button(
+                    onClick = timerViewModel::cancelTimer
+                ) {
+                    Text("Cancel")
+                }
+            } else {
+                Button(
+                    enabled = timerViewModel.selectedHour +
+                            timerViewModel.selectedMinute +
+                            timerViewModel.selectedSecond > 0,
+                    onClick = timerViewModel::startTimer
+                ) {
+                    Text("Start")
+                }
             }
-        } else {
+
+            //ToDo 6: Reset button
             Button(
-                enabled = timerViewModel.selectedHour +
-                        timerViewModel.selectedMinute +
-                        timerViewModel.selectedSecond > 0,
-                onClick = timerViewModel::startTimer,
-                modifier = modifier.padding(top = 50.dp)
+                onClick = timerViewModel::resetTimer,
+                enabled = timerViewModel.totalMillis > 0L,
+                modifier = Modifier.padding(start = 16.dp)
             ) {
-                Text("Start")
+                Text("Reset")
             }
         }
     }
 }
 
-
-
 fun timerText(timeInMillis: Long): String {
     val duration: Duration = timeInMillis.milliseconds
     return String.format(
-        Locale.getDefault(),"%02d:%02d:%02d",
-        duration.inWholeHours, duration.inWholeMinutes % 60, duration.inWholeSeconds % 60)
+        Locale.getDefault(), "%02d:%02d:%02d",
+        duration.inWholeHours, duration.inWholeMinutes % 60, duration.inWholeSeconds % 60
+    )
 }
 
 @Composable
@@ -158,7 +224,7 @@ fun NumberPickerWrapper(
     AndroidView(
         factory = { context ->
             NumberPicker(context).apply {
-                setOnValueChangedListener { numberPicker, oldVal, newVal -> onNumPick(newVal) }
+                setOnValueChangedListener { _, _, newVal -> onNumPick(newVal) }
                 minValue = minVal
                 maxValue = maxVal
                 value = initVal
